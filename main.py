@@ -1,45 +1,41 @@
+from graphviz import Digraph
+import random
+
 class Teacher:
     def __init__(self):
-        # Language: strings with NO three consecutive 1s
         self.alphabet = ['0', '1']
-        self.start = 'q0'
-        self.accept = {'q0', 'q1', 'q2'}  # reject only q3
-        self.delta = {
-            'q0': {'0': 'q0', '1': 'q1'},
-            'q1': {'0': 'q0', '1': 'q2'},
-            'q2': {'0': 'q0', '1': 'q3'},
-            'q3': {'0': 'q0', '1': 'q3'}  # sink state
-        }
 
     def membership_query(self, s):
-        state = self.start
+        ones_count = 0
         for char in s:
-            state = self.delta[state][char]
-        return state in self.accept
+            if char == '1':
+                ones_count += 1
+        cond1 = (ones_count % 2 == 0)
 
-    def membership_query(self, s):
-        state = self.start
-        for char in s:
-            state = self.delta[state][char]
-        return state in self.accept
-    
+        zeros_count = len(s) - ones_count
+        cond2 = (zeros_count % 3 == 0)
+
+        cond3 = '111' not in s
+
+        return cond1 and cond2 and cond3
+
     def equivalence_query(self, hypothesis):
-        import random
-        for _ in range(100):  # You can increase this for more confidence
-            length = random.randint(0, 20)
+        
+        for _ in range(500):
+            length = random.randint(0, 30)
             s = ''.join(random.choice(self.alphabet) for _ in range(length))
             teacher_accept = self.membership_query(s)
             hypo_accept = hypothesis.membership_query(s)
             if teacher_accept != hypo_accept:
-                return s  # Counterexample found
-        return None  # No difference found (probably equivalent)
+                return s
+        return None
 
 
 class ObservationTable:
     def __init__(self, alphabet):
         self.alphabet = alphabet
         self.S = {""} 
-        self.E = {""}               # Start minimal — let algorithm grow it
+        self.E = {""}   
         self.table = {}           
 
     def ask(self, teacher, prefix, suffix):
@@ -108,7 +104,6 @@ class ObservationTable:
         signature_to_state = {}
         state_counter = 0
 
-        # Assign q0 to empty string first
         empty_sig = self.get_row_signature("")
         signature_to_state[empty_sig] = "q0"
         state_counter = 1
@@ -168,6 +163,39 @@ class DFA:
 
         print(f"\nStart state: {self.start_state}")
         print("Accepting states: " + ", ".join(sorted(self.accept_states)) if self.accept_states else "None")
+    
+    def render_graphviz(self, filename="learned_dfa"):
+        """Render the DFA with improved layout and colors"""
+        from graphviz import Digraph
+
+        dot = Digraph(comment='Learned DFA', format='png')
+        dot.attr(rankdir='LR')           # Left to right
+        dot.attr('graph', splines='curved')  # Smooth curved edges
+        dot.attr('graph', overlap='false')   # Prevent node overlap
+        dot.attr('graph', nodesep='0.6')     # Horizontal spacing
+        dot.attr('graph', ranksep='1.2')     # Vertical spacing
+        dot.attr('node', fontsize='14', fontname='Arial')
+
+        # States
+        for state in sorted(self.states, key=lambda s: int(s[1:]) if s.startswith('q') else 999):
+            shape = 'doublecircle' if state in self.accept_states else 'circle'
+            fillcolor = 'lightgreen' if state in self.accept_states else 'white'
+            dot.node(state, state, shape=shape, style='filled', fillcolor=fillcolor)
+
+        # Invisible start node + arrow
+        dot.node('start', shape='none')
+        dot.edge('start', self.start_state, arrowhead='normal', style='bold')
+
+        
+        for state in self.states:
+            for char, target in sorted(self.transitions[state].items()):
+                color = 'blue' if char == '0' else 'red'
+                dot.edge(state, target, label=char, color=color, fontcolor=color, fontsize='12')
+
+        # Render both PNG and SVG
+        dot.render(filename, format='png', view=True, cleanup=True)
+        dot.render(filename, format='svg', cleanup=False)  # Keep .svg file too
+        print(f"DFA saved as {filename}.png (opened) and {filename}.svg")
 
 
 if __name__ == "__main__":
@@ -181,7 +209,6 @@ if __name__ == "__main__":
         iteration += 1
         print(f"\n=== Iteration {iteration} ===")
 
-        # Fill and make closed
         table.fill(teacher)
         while True:
             closed, witness = table.is_closed(teacher)
@@ -192,7 +219,6 @@ if __name__ == "__main__":
             table.S.add(witness)
             table.fill(teacher)
 
-        # Make consistent
         while True:
             consistent, new_suffix = table.is_consistent(teacher)
             if consistent:
@@ -202,12 +228,12 @@ if __name__ == "__main__":
             table.E.add(new_suffix)
             table.fill(teacher)
 
-        # Build hypothesis
         hypothesis = table.construct_hypothesis_dfa()
         print("\nCurrent Hypothesis:")
         hypothesis.print_dfa_table()
 
-        # Equivalence query
+        hypothesis.render_graphviz("learned_dfa")
+
         counterexample = teacher.equivalence_query(hypothesis)
         if counterexample is None:
             print("\nSUCCESS! Hypothesis is equivalent to the hidden DFA.")
@@ -216,10 +242,31 @@ if __name__ == "__main__":
             break
         else:
             print(f"\nCounterexample found: '{counterexample}'")
-            # Add all prefixes of the counterexample
             for i in range(len(counterexample) + 1):
                 prefix = counterexample[:i]
                 if prefix not in table.S:
                     print(f"  → Adding prefix '{prefix}' from counterexample")
                     table.S.add(prefix)
             table.fill(teacher)
+
+        print(f"\nSUCCESS! Learned in {iteration} iterations.")
+        
+    print("\nTest some strings:")
+    test_strings = [
+        ("", True),
+        ("0", False),
+        ("00", False),
+        ("000", True),
+        ("1", False),
+        ("11", True),
+        ("111", False),
+        ("00011", True),
+        ("1110", False),
+        ("000000", True),
+        ("101010", False),
+        ("11111", False),
+        ("000011", False)
+    ]
+    for s, expected in test_strings:
+        result = hypothesis.membership_query(s)
+        print(f"'{s:6}' → {result}   (expected: {expected})")
