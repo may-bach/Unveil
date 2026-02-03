@@ -1,32 +1,117 @@
 from graphviz import Digraph
 import random
+import difflib 
 
 class Teacher:
     def __init__(self):
         self.alphabet = ['0', '1']
+        self.rule_description = input("\nEnter the condition/rule to learn (e.g. 'even number of 1s', 'odd number of 0s', 'ends with 00', 'no three consecutive 1s', 'even 1s and odd 0s'): ").lower().strip()
+        self.parse_rule()
+
+    def parse_rule(self):
+        # Synonyms for better matching
+        synonyms = {
+            'even': ['even', 'evenly', 'pair'],
+            'odd': ['odd', 'uneven'],
+            'number': ['number', 'count', 'amount', 'how many'],
+            'ones': ['1s', '1', 'ones', 'one'],
+            'zeros': ['0s', '0', 'zeros', 'zero'],
+            'ends with': ['ends with', 'end with', 'finishes with', 'last two', 'ends in'],
+            'no': ['no', 'without', 'not have', 'avoid'],
+            'consecutive': ['consecutive', 'in a row', 'row', 'back to back'],
+        }
+
+        # Known condition templates with similarity threshold
+        templates = {
+            'even_ones': "even number of 1s",
+            'odd_ones': "odd number of 1s",
+            'even_zeros': "even number of 0s",
+            'odd_zeros': "odd number of 0s",
+            'ends_with': "ends with",
+            'no_consecutive': "no consecutive",
+            'mod_zero': "multiple of"  # for 0s mod 3, etc.
+        }
+
+        parts = [p.strip() for p in self.rule_description.replace('and', ' AND ').replace('plus', ' AND ').split(' AND ')]
+
+        self.conditions = []
+        for part in parts:
+            part_clean = part.lower().strip()
+            best_match = None
+            best_score = 0
+
+            # Check each template with fuzzy matching
+            for cond_type, template in templates.items():
+                # Full phrase similarity
+                score = difflib.SequenceMatcher(None, part_clean, template).ratio()
+                # Also check keywords
+                for word in part_clean.split():
+                    for syn_list in synonyms.values():
+                        for syn in syn_list:
+                            if difflib.SequenceMatcher(None, word, syn).ratio() > 0.7:
+                                score += 0.2  # boost if keywords match
+
+                if score > best_score:
+                    best_score = score
+                    best_match = cond_type
+
+            if best_score > 0.6:  # Threshold for "good enough" match
+                if best_match == 'ends_with':
+                    # Extract the ending part (after 'with')
+                    ending = part_clean.split('with')[-1].strip().strip("'\"")
+                    self.conditions.append(('ends_with', ending))
+                elif best_match == 'no_consecutive':
+                    # Extract number and char (e.g. "three 1s" → 3, '1')
+                    num = next((int(n) for n in part_clean.split() if n.isdigit()), 3)
+                    char = '1' if '1' in part_clean else '0'
+                    self.conditions.append(('no_consecutive', (num, char)))
+                elif best_match == 'mod_zero':
+                    # e.g. "number of 0s multiple of 3"
+                    mod = next((int(n) for n in part_clean.split() if n.isdigit()), 3)
+                    char = '0' if '0' in part_clean else '1'
+                    self.conditions.append(('mod_zero', (char, mod)))
+                else:
+                    self.conditions.append((best_match, None))
+            else:
+                print(f"Warning: Couldn't understand '{part}' — skipping")
+
+        if not self.conditions:
+            print("No valid conditions found — defaulting to 'even number of 1s'")
+            self.conditions = [('even_ones', None)]
 
     def membership_query(self, s):
-        ones_count = 0
-        for char in s:
-            if char == '1':
-                ones_count += 1
-        cond1 = (ones_count % 2 == 0)
-
-        zeros_count = len(s) - ones_count
-        cond2 = (zeros_count % 3 == 0)
-
-        cond3 = '111' not in s
-
-        return cond1 and cond2 and cond3
+        for cond_type, param in self.conditions:
+            if cond_type == 'even_ones':
+                if s.count('1') % 2 != 0:
+                    return False
+            elif cond_type == 'odd_ones':
+                if s.count('1') % 2 == 0:
+                    return False
+            elif cond_type == 'even_zeros':
+                if (len(s) - s.count('1')) % 2 != 0:
+                    return False
+            elif cond_type == 'odd_zeros':
+                if (len(s) - s.count('1')) % 2 == 0:
+                    return False
+            elif cond_type == 'ends_with':
+                if not s.endswith(param):
+                    return False
+            elif cond_type == 'no_consecutive':
+                num, char = param
+                if char * num in s:
+                    return False
+            elif cond_type == 'mod_zero':
+                char, mod = param
+                count = s.count(char)
+                if count % mod != 0:
+                    return False
+        return True
 
     def equivalence_query(self, hypothesis):
-        
-        for _ in range(500):
+        for _ in range(300):
             length = random.randint(0, 30)
             s = ''.join(random.choice(self.alphabet) for _ in range(length))
-            teacher_accept = self.membership_query(s)
-            hypo_accept = hypothesis.membership_query(s)
-            if teacher_accept != hypo_accept:
+            if self.membership_query(s) != hypothesis.membership_query(s):
                 return s
         return None
 
@@ -165,8 +250,6 @@ class DFA:
         print("Accepting states: " + ", ".join(sorted(self.accept_states)) if self.accept_states else "None")
     
     def render_graphviz(self, filename="learned_dfa"):
-        """Render the DFA with improved layout and colors"""
-        from graphviz import Digraph
 
         dot = Digraph(comment='Learned DFA', format='png')
         dot.attr(rankdir='LR')           # Left to right
@@ -239,7 +322,30 @@ if __name__ == "__main__":
             print("\nSUCCESS! Hypothesis is equivalent to the hidden DFA.")
             print("Final DFA:")
             hypothesis.print_dfa_table()
-            break
+
+            # === Interactive Test Mode - Loops Forever ===
+            print("\n" + "="*60)
+            print("INTERACTIVE TEST MODE (loops forever)")
+            print("Enter any string to test if it's accepted/rejected.")
+            print("Press Ctrl+C to stop the program.")
+            print("="*60)
+
+            try:
+                while True:  # True forever loop
+                    user_input = input("\nEnter string: ").strip()
+
+                    # Handle empty string specially
+                    if user_input == "":
+                        result = hypothesis.membership_query("")
+                    else:
+                        result = hypothesis.membership_query(user_input)
+
+                    status = "ACCEPTED" if result else "REJECTED"
+                    print(f"→ '{user_input}' → {status}")
+            except KeyboardInterrupt:
+                print("\n\nCtrl+C detected — exiting gracefully.")
+                print("Thanks for testing! Run again to learn new languages.")
+                break
         else:
             print(f"\nCounterexample found: '{counterexample}'")
             for i in range(len(counterexample) + 1):
@@ -250,23 +356,3 @@ if __name__ == "__main__":
             table.fill(teacher)
 
         print(f"\nSUCCESS! Learned in {iteration} iterations.")
-        
-    print("\nTest some strings:")
-    test_strings = [
-        ("", True),
-        ("0", False),
-        ("00", False),
-        ("000", True),
-        ("1", False),
-        ("11", True),
-        ("111", False),
-        ("00011", True),
-        ("1110", False),
-        ("000000", True),
-        ("101010", False),
-        ("11111", False),
-        ("000011", False)
-    ]
-    for s, expected in test_strings:
-        result = hypothesis.membership_query(s)
-        print(f"'{s:6}' → {result}   (expected: {expected})")
