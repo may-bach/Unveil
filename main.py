@@ -1,82 +1,125 @@
 from graphviz import Digraph
 import random
-import difflib 
+import difflib
+import re
 
 class Teacher:
     def __init__(self):
         self.alphabet = ['0', '1']
-        self.rule_description = input("\nEnter the condition/rule to learn (e.g. 'even number of 1s', 'odd number of 0s', 'ends with 00', 'no three consecutive 1s', 'even 1s and odd 0s'): ").lower().strip()
+        self.rule_description = input("\nEnter the condition/rule to learn (be casual, typos ok, e.g. 'odd ones and zeros'): ").lower().strip()
         self.parse_rule()
 
     def parse_rule(self):
-        # Synonyms for better matching
         synonyms = {
-            'even': ['even', 'evenly', 'pair'],
-            'odd': ['odd', 'uneven'],
-            'number': ['number', 'count', 'amount', 'how many'],
-            'ones': ['1s', '1', 'ones', 'one'],
-            'zeros': ['0s', '0', 'zeros', 'zero'],
-            'ends with': ['ends with', 'end with', 'finishes with', 'last two', 'ends in'],
-            'no': ['no', 'without', 'not have', 'avoid'],
-            'consecutive': ['consecutive', 'in a row', 'row', 'back to back'],
+            'even': ['even', 'pair', 'evenly', 'paired', 'parity even', 'even parity'],
+            'odd': ['odd', 'uneven', 'oddly', 'unpaired', 'parity odd'],
+            'number': ['number', 'count', 'amount', 'how many', 'quantity', 'total'],
+            'ones': ['1s', '1', 'ones', 'one', '1\'s'],
+            'zeros': ['0s', '0', 'zeros', 'zero', '0\'s', 'zeroes'],
+            'ends with': ['ends with', 'end with', 'finishes with', 'ending with', 'last', 'ends in', 'finish in', 'conclude with'],
+            'starts with': ['starts with', 'begin with', 'beginning with', 'start in', 'begins in'],
+            'contains': ['contains', 'has', 'include', 'includes', 'contain', 'have'],
+            'no': ['no', 'without', 'not', 'avoid', 'does not have', 'free of'],
+            'consecutive': ['consecutive', 'in a row', 'row', 'back to back', 'back-to-back', 'consec', 'straight'],
+            'multiple of': ['multiple of', 'divisible by', 'modulo', 'mod', 'remainder 0', 'div by'],
+            'length': ['length', 'size', 'long', 'string length']
         }
 
-        # Known condition templates with similarity threshold
         templates = {
             'even_ones': "even number of 1s",
             'odd_ones': "odd number of 1s",
             'even_zeros': "even number of 0s",
             'odd_zeros': "odd number of 0s",
             'ends_with': "ends with",
+            'starts_with': "starts with",
+            'contains': "contains",
             'no_consecutive': "no consecutive",
-            'mod_zero': "multiple of"  # for 0s mod 3, etc.
+            'mod_zero': "multiple of",
+            'even_length': "length even",
+            'odd_length': "length odd"
         }
 
-        parts = [p.strip() for p in self.rule_description.replace('and', ' AND ').replace('plus', ' AND ').split(' AND ')]
+        delimiters = r'\band\b|\+|&|,'
+        parts = re.split(delimiters, self.rule_description)
+        parts = [p.strip() for p in parts if p.strip()]
 
         self.conditions = []
+        last_parity = None
+
         for part in parts:
             part_clean = part.lower().strip()
             best_match = None
             best_score = 0
+            matched_template = None
 
-            # Check each template with fuzzy matching
             for cond_type, template in templates.items():
-                # Full phrase similarity
                 score = difflib.SequenceMatcher(None, part_clean, template).ratio()
-                # Also check keywords
                 for word in part_clean.split():
-                    for syn_list in synonyms.values():
-                        for syn in syn_list:
-                            if difflib.SequenceMatcher(None, word, syn).ratio() > 0.7:
-                                score += 0.2  # boost if keywords match
-
+                    for key, syn_list in synonyms.items():
+                        if any(difflib.SequenceMatcher(None, word, syn).ratio() > 0.8 for syn in syn_list):
+                            score += 0.25
                 if score > best_score:
                     best_score = score
                     best_match = cond_type
+                    matched_template = template
 
-            if best_score > 0.6:  # Threshold for "good enough" match
-                if best_match == 'ends_with':
-                    # Extract the ending part (after 'with')
-                    ending = part_clean.split('with')[-1].strip().strip("'\"")
-                    self.conditions.append(('ends_with', ending))
+            if best_score > 0.65:
+                print(f"Matched '{part}' to '{matched_template}' (score: {best_score:.2f})")
+
+                if best_match in ['even_ones', 'odd_ones', 'even_zeros', 'odd_zeros']:
+                    last_parity = 'even' if 'even' in best_match else 'odd'
+                    self.conditions.append((best_match, None))
+                elif best_match in ['even_length', 'odd_length']:
+                    self.conditions.append((best_match, None))
+                elif best_match == 'ends_with':
+                    ending = re.search(r'(?:ends? with|ending with|end with|finish with|finishes with|last)\s+([01]+)', part_clean)
+                    ending_str = ending.group(1) if ending else '00'
+                    self.conditions.append(('ends_with', ending_str))
+                elif best_match == 'starts_with':
+                    starting = re.search(r'(?:starts? with|beginning with|start with)\s+([01]+)', part_clean)
+                    start_str = starting.group(1) if starting else '00'
+                    self.conditions.append(('starts_with', start_str))
+                elif best_match == 'contains':
+                    contains_str = re.search(r'(?:contains|has|include)\s+([01]+)', part_clean)
+                    substr = contains_str.group(1) if contains_str else '00'
+                    self.conditions.append(('contains', substr))
                 elif best_match == 'no_consecutive':
-                    # Extract number and char (e.g. "three 1s" → 3, '1')
-                    num = next((int(n) for n in part_clean.split() if n.isdigit()), 3)
+                    num_match = re.search(r'(\d+)', part_clean)
+                    num = int(num_match.group(1)) if num_match else 3
                     char = '1' if '1' in part_clean else '0'
                     self.conditions.append(('no_consecutive', (num, char)))
                 elif best_match == 'mod_zero':
-                    # e.g. "number of 0s multiple of 3"
-                    mod = next((int(n) for n in part_clean.split() if n.isdigit()), 3)
+                    mod_match = re.search(r'(\d+)', part_clean)
+                    mod = int(mod_match.group(1)) if mod_match else 3
                     char = '0' if '0' in part_clean else '1'
                     self.conditions.append(('mod_zero', (char, mod)))
-                else:
-                    self.conditions.append((best_match, None))
             else:
-                print(f"Warning: Couldn't understand '{part}' — skipping")
+                # Carry-over with fuzzy tolerance
+                if last_parity:
+                    zero_variations = ['zeros', 'zero', '0s', '0', '0\'s', 'zeors', 'zros', 'zeroes']
+                    one_variations = ['ones', 'one', '1s', '1', '1\'s']
+                    zero_score = max(difflib.SequenceMatcher(None, word, var).ratio() 
+                                     for word in part_clean.split() 
+                                     for var in zero_variations)
+                    one_score = max(difflib.SequenceMatcher(None, word, var).ratio() 
+                                    for word in part_clean.split() 
+                                    for var in one_variations)
+
+                    if zero_score > 0.75:
+                        print(f"Carrying '{last_parity}' to 'zeros' part (score: {zero_score:.2f})")
+                        cond = f'{last_parity}_zeros'
+                        self.conditions.append((cond, None))
+                    elif one_score > 0.75:
+                        print(f"Carrying '{last_parity}' to 'ones' part (score: {one_score:.2f})")
+                        cond = f'{last_parity}_ones'
+                        self.conditions.append((cond, None))
+                    else:
+                        print(f"Warning: Skipped unclear part '{part}' (score too low)")
+                else:
+                    print(f"Warning: Skipped unclear part '{part}' (score too low)")
 
         if not self.conditions:
-            print("No valid conditions found — defaulting to 'even number of 1s'")
+            print("No valid conditions matched — defaulting to 'even number of 1s'")
             self.conditions = [('even_ones', None)]
 
     def membership_query(self, s):
@@ -96,6 +139,12 @@ class Teacher:
             elif cond_type == 'ends_with':
                 if not s.endswith(param):
                     return False
+            elif cond_type == 'starts_with':
+                if not s.startswith(param):
+                    return False
+            elif cond_type == 'contains':
+                if param not in s:
+                    return False
             elif cond_type == 'no_consecutive':
                 num, char = param
                 if char * num in s:
@@ -104,6 +153,12 @@ class Teacher:
                 char, mod = param
                 count = s.count(char)
                 if count % mod != 0:
+                    return False
+            elif cond_type == 'even_length':
+                if len(s) % 2 != 0:
+                    return False
+            elif cond_type == 'odd_length':
+                if len(s) % 2 == 0:
                     return False
         return True
 
@@ -225,10 +280,13 @@ class DFA:
         self.start_state = start_state
         self.accept_states = accept_states
         self.transitions = transitions
+        self.alphabet = ['0', '1']
 
     def membership_query(self, string):
         state = self.start_state
         for char in string:
+            if char not in self.alphabet:
+                return False
             state = self.transitions[state][char]
         return state in self.accept_states
 
@@ -248,36 +306,28 @@ class DFA:
 
         print(f"\nStart state: {self.start_state}")
         print("Accepting states: " + ", ".join(sorted(self.accept_states)) if self.accept_states else "None")
-    
+
     def render_graphviz(self, filename="learned_dfa"):
-
         dot = Digraph(comment='Learned DFA', format='png')
-        dot.attr(rankdir='LR')           # Left to right
-        dot.attr('graph', splines='curved')  # Smooth curved edges
-        dot.attr('graph', overlap='false')   # Prevent node overlap
-        dot.attr('graph', nodesep='0.6')     # Horizontal spacing
-        dot.attr('graph', ranksep='1.2')     # Vertical spacing
-        dot.attr('node', fontsize='14', fontname='Arial')
+        dot.attr(rankdir='LR')
+        dot.attr('graph', splines='curved', overlap='false', nodesep='0.7', ranksep='1.3')
+        dot.attr('node', fontsize='14', fontname='Arial', shape='circle')
 
-        # States
         for state in sorted(self.states, key=lambda s: int(s[1:]) if s.startswith('q') else 999):
             shape = 'doublecircle' if state in self.accept_states else 'circle'
-            fillcolor = 'lightgreen' if state in self.accept_states else 'white'
+            fillcolor = '#ccffcc' if state in self.accept_states else 'white'
             dot.node(state, state, shape=shape, style='filled', fillcolor=fillcolor)
 
-        # Invisible start node + arrow
         dot.node('start', shape='none')
-        dot.edge('start', self.start_state, arrowhead='normal', style='bold')
+        dot.edge('start', self.start_state, arrowhead='normal', style='bold', color='blue')
 
-        
         for state in self.states:
             for char, target in sorted(self.transitions[state].items()):
                 color = 'blue' if char == '0' else 'red'
                 dot.edge(state, target, label=char, color=color, fontcolor=color, fontsize='12')
 
-        # Render both PNG and SVG
         dot.render(filename, format='png', view=True, cleanup=True)
-        dot.render(filename, format='svg', cleanup=False)  # Keep .svg file too
+        dot.render(filename, format='svg', cleanup=False)
         print(f"DFA saved as {filename}.png (opened) and {filename}.svg")
 
 
@@ -323,29 +373,26 @@ if __name__ == "__main__":
             print("Final DFA:")
             hypothesis.print_dfa_table()
 
-            # === Interactive Test Mode - Loops Forever ===
+            print(f"\nLearned in {iteration} iterations.")
+
+            # Infinite Interactive Test Mode
             print("\n" + "="*60)
             print("INTERACTIVE TEST MODE (loops forever)")
             print("Enter any string to test if it's accepted/rejected.")
-            print("Press Ctrl+C to stop the program.")
+            print("Press Ctrl+C to stop.")
             print("="*60)
 
             try:
-                while True:  # True forever loop
+                while True:
                     user_input = input("\nEnter string: ").strip()
-
-                    # Handle empty string specially
-                    if user_input == "":
-                        result = hypothesis.membership_query("")
-                    else:
-                        result = hypothesis.membership_query(user_input)
-
+                    result = hypothesis.membership_query(user_input)
                     status = "ACCEPTED" if result else "REJECTED"
                     print(f"→ '{user_input}' → {status}")
             except KeyboardInterrupt:
                 print("\n\nCtrl+C detected — exiting gracefully.")
-                print("Thanks for testing! Run again to learn new languages.")
+                print("Thanks for testing!")
                 break
+            break
         else:
             print(f"\nCounterexample found: '{counterexample}'")
             for i in range(len(counterexample) + 1):
@@ -354,5 +401,3 @@ if __name__ == "__main__":
                     print(f"  → Adding prefix '{prefix}' from counterexample")
                     table.S.add(prefix)
             table.fill(teacher)
-
-        print(f"\nSUCCESS! Learned in {iteration} iterations.")

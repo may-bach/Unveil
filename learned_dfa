@@ -1,0 +1,20 @@
+// Learned DFA
+digraph {
+	rankdir=LR
+	graph [nodesep=0.7 overlap=false ranksep=1.3 splines=curved]
+	node [fontname=Arial fontsize=14 shape=circle]
+	q0 [label=q0 fillcolor="#ccffcc" shape=doublecircle style=filled]
+	q1 [label=q1 fillcolor=white shape=circle style=filled]
+	q2 [label=q2 fillcolor=white shape=circle style=filled]
+	q3 [label=q3 fillcolor=white shape=circle style=filled]
+	start [shape=none]
+	start -> q0 [arrowhead=normal color=blue style=bold]
+	q3 -> q2 [label=0 color=blue fontcolor=blue fontsize=12]
+	q3 -> q1 [label=1 color=red fontcolor=red fontsize=12]
+	q1 -> q0 [label=0 color=blue fontcolor=blue fontsize=12]
+	q1 -> q3 [label=1 color=red fontcolor=red fontsize=12]
+	q2 -> q3 [label=0 color=blue fontcolor=blue fontsize=12]
+	q2 -> q0 [label=1 color=red fontcolor=red fontsize=12]
+	q0 -> q1 [label=0 color=blue fontcolor=blue fontsize=12]
+	q0 -> q2 [label=1 color=red fontcolor=red fontsize=12]
+}
